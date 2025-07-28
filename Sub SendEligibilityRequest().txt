@@ -1,0 +1,30 @@
+Sub SendEligibilityRequest()
+    Dim http As Object
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    
+    ' === KONFIGURACJA ===
+    Dim apiToken As String
+    apiToken = "Token cn90c279032841f57383c48836a50d3791e4482f" ' ← Twój token
+    
+    Dim url As String
+    url = "https://api.greengateway.eib.org/renewables/photovoltaic/?country=PL&version=2.0a&reporting_format=eib&schema_format=2.0"
+    
+    Dim payload As String
+    payload = "{""onsite"": ""true"", ""size_specification"": ""kWp"", ""power_rating"": ""16"", ""region"": 40, ""investment_amount"": null, ""comment"": null, ""cell_type"": 1, ""orientation"": 1, ""battery_storage"": ""false"", ""changed_energy_data"": []}"
+
+    ' === WYSYŁANIE ŻĄDANIA ===
+    With http
+        .Open "POST", url, False
+        .setRequestHeader "Content-Type", "application/json"
+        .setRequestHeader "Authorization", apiToken
+        .setRequestHeader "Accept-Language", "pl" ' Można też użyć "en", "de" itp.
+        .send payload
+    End With
+    
+    ' === OBSŁUGA ODPOWIEDZI ===
+    If http.Status = 200 Then
+        MsgBox "Sukces! Odpowiedź API:" & vbCrLf & http.responseText
+    Else
+        MsgBox "Błąd " & http.Status & ": " & vbCrLf & http.responseText
+    End If
+End Sub
