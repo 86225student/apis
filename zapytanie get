@@ -1,0 +1,42 @@
+Sub PobierzSchematFormularza()
+
+    Dim http As Object
+    Dim url As String
+    Dim token As String
+    Dim response As String
+    Dim json As Object
+    Dim item As Variant
+    Dim i As Long
+
+    ' URL z parametrami
+    url = "https://api.greengateway.eib.org/renewables/photovoltaic/?country=PL&version=2.0a&reporting_format=eib&schema_format=2.0"
+    
+    ' Token z arkusza
+    token = Trim(Sheets("PV_Checker").Range("B1").Value)
+
+    ' Inicjalizacja
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", url, False
+    http.setRequestHeader "Authorization", "Token " & token
+    http.setRequestHeader "Accept-Language", "pl"
+    http.send
+
+    ' Sprawdzenie statusu
+    If http.Status <> 200 Then
+        MsgBox "Błąd pobierania schematu: " & http.Status & vbCrLf & http.responseText, vbCritical
+        Exit Sub
+    End If
+
+    ' Parsuj JSON i wyświetl elementy
+    Set json = JsonConverter.ParseJson(http.responseText)
+
+    i = 1
+    For Each item In json
+        Sheets("PV_Checker").Cells(i + 10, 1).Value = item("label")
+        Sheets("PV_Checker").Cells(i + 10, 2).Value = item("component")
+        i = i + 1
+    Next
+
+    MsgBox "Schemat formularza został pobrany.", vbInformation
+
+End Sub
