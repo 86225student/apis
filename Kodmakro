@@ -1,0 +1,30 @@
+Function CheckValue(val As String) As Boolean
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim rng As Range
+    Dim f As Range
+    Dim masterPath As String
+    
+    ' <<< podaj swoją ścieżkę do pliku na OneDrive >>>
+    masterPath = "C:\Users\Jan\OneDrive\Dokumenty\CentralnaLista.xlsx"
+    
+    On Error Resume Next
+    ' Sprawdź, czy plik już jest otwarty
+    Set wb = Workbooks("CentralnaLista.xlsx")
+    On Error GoTo 0
+    
+    If wb Is Nothing Then
+        ' Otwórz plik w tle tylko do odczytu
+        Set wb = Workbooks.Open(Filename:=masterPath, ReadOnly:=True)
+    End If
+    
+    Set ws = wb.Sheets(1)
+    Set rng = ws.Range("A:A") ' Zakładamy, że lista jest w kolumnie A
+    
+    Set f = rng.Find(val, LookAt:=xlWhole)
+    If f Is Nothing Then
+        CheckValue = False
+    Else
+        CheckValue = True
+    End If
+End Function
