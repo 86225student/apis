@@ -1,0 +1,70 @@
+Sub ExportToAccessSharePoint()
+    Dim ws As Worksheet
+    Dim cn As Object
+    Dim sql As String
+    Dim tempPath As String
+    Dim http As Object
+    Dim fileURL As String
+    Dim localDB As String
+    
+    ' 🔽 tu wstaw ścieżkę do pliku .accdb na SharePoint
+    ' np. "https://twojsharepoint.sharepoint.com/sites/nazwa/Shared%20Documents/Database2.accdb"
+    fileURL = "<TUTAJ_WSTAW_LINK_DO_PLIKU_NA_SHAREPOINT>"
+    
+    Set ws = ThisWorkbook.Sheets("Arkusz1") ' zmień nazwę arkusza, jeśli trzeba
+    
+    ' 📂 lokalna kopia w folderze TEMP
+    tempPath = Environ("TEMP") & "\Database2.accdb"
+    
+    ' --- POBRANIE pliku z SharePoint ---
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", fileURL, False
+    http.Send
+    
+    If http.Status <> 200 Then
+        MsgBox "Błąd pobierania pliku z SharePoint: " & http.Status
+        Exit Sub
+    End If
+    
+    ' zapis pliku tymczasowego
+    With CreateObject("ADODB.Stream")
+        .Type = 1
+        .Open
+        .Write http.responseBody
+        .SaveToFile tempPath, 2 ' overwrite
+        .Close
+    End With
+    
+    ' --- OTWARCIE Accessa lokalnie ---
+    Set cn = CreateObject("ADODB.Connection")
+    cn.Open "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" & tempPath & ";"
+    
+    ' 🔽 dopasuj nazwy kolumn w tabeli Formularz do pól z F9:F22
+    sql = "INSERT INTO Formularz (Pole1, Pole2, Pole3, Pole4, Pole5, Pole6, Pole7, Pole8, Pole9, Pole10, Pole11, Pole12, Pole13, Pole14) " & _
+          "VALUES ('" & ws.Range("F9").Value & "', '" & ws.Range("F10").Value & "', '" & ws.Range("F11").Value & "', '" & _
+          ws.Range("F12").Value & "', '" & ws.Range("F13").Value & "', '" & ws.Range("F14").Value & "', '" & ws.Range("F15").Value & "', '" & _
+          ws.Range("F16").Value & "', '" & ws.Range("F17").Value & "', '" & ws.Range("F18").Value & "', '" & ws.Range("F19").Value & "', '" & _
+          ws.Range("F20").Value & "', '" & ws.Range("F21").Value & "', '" & ws.Range("F22").Value & "')"
+    
+    cn.Execute sql
+    cn.Close
+    
+    ' --- WYSYŁKA pliku z powrotem na SharePoint ---
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "PUT", fileURL, False
+    ' ❗ jeśli SharePoint wymaga logowania → trzeba dodać nagłówki autoryzacji (Bearer token / cookies SSO)
+    
+    With CreateObject("ADODB.Stream")
+        .Type = 1
+        .Open
+        .LoadFromFile tempPath
+        http.Send .Read
+        .Close
+    End With
+    
+    If http.Status = 200 Or http.Status = 201 Then
+        MsgBox "Rekord dodany i plik wysłany na SharePoint."
+    Else
+        MsgBox "Dodano rekord lokalnie, ale wysyłka na SharePoint nie powiodła się. Kod: " & http.Status
+    End If
+End Sub
