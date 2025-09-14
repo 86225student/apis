@@ -1,0 +1,189 @@
+Option Explicit
+
+' wyniki do pliku (tekst)
+Dim outputText As String
+' słownik przetworzonych komórek (zapobiega cyklom)
+Dim visited As Object
+
+' === makro uruchamiające ===
+Public Sub AnalizujDrzewo()
+    Dim startCell As Range
+    Dim filePath As String, fnum As Long
+    Dim wsName As String, addr As String
+
+    ' jeśli zaznaczono jedną komórkę, użyj jej; inaczej zapytaj
+    If TypeName(Selection) = "Range" And Selection.Cells.Count = 1 Then
+        Set startCell = Selection
+    Else
+        wsName = InputBox("Podaj arkusz (np. WYNIKI):", "Start - arkusz", "WYNIKI")
+        If wsName = "" Then Exit Sub
+        addr = InputBox("Podaj adres komórki (np. C7):", "Start - komórka", "C7")
+        If addr = "" Then Exit Sub
+        On Error Resume Next
+        Set startCell = ThisWorkbook.Worksheets(wsName).Range(addr)
+        On Error GoTo 0
+        If startCell Is Nothing Then MsgBox "Nie znaleziono komórki. Anulowano.", vbExclamation: Exit Sub
+    End If
+
+    outputText = ""
+    Set visited = CreateObject("Scripting.Dictionary")
+
+    ' start rekurencji
+    ProcessCell startCell, 0
+
+    ' plik wynikowy — zapis w folderze skoroszytu lub na pulpicie jeśli skoroszyt nie zapisany
+    If ThisWorkbook.Path = "" Then
+        filePath = CreateObject("WScript.Shell").SpecialFolders("Desktop") & "\analiza_drzewo.txt"
+    Else
+        filePath = ThisWorkbook.Path & "\analiza_drzewo.txt"
+    End If
+
+    fnum = FreeFile
+    Open filePath For Output As #fnum
+    Print #fnum, outputText
+    Close #fnum
+
+    MsgBox "Zapisano: " & filePath, vbInformation
+End Sub
+
+' === procedura rekurencyjna przetwarzająca pojedynczą komórkę ===
+Private Sub ProcessCell(cel As Range, depth As Long)
+    If cel Is Nothing Then Exit Sub
+    Dim key As String
+    key = cel.Parent.Name & "!" & cel.Address(False, False)
+
+    ' jeżeli już przetworzone (cykl) — dopisz informację i wyjdź
+    If visited.Exists(key) Then
+        outputText = outputText & String(depth * 4, " ") & key & " (już przetworzone / cykl)" & vbCrLf
+        Exit Sub
+    End If
+    visited.Add key, True
+
+    Dim f As String
+    On Error Resume Next
+    f = cel.Formula
+    On Error GoTo 0
+
+    If f = "" Or Left(f, 1) <> "=" Then
+        ' suche dane
+        outputText = outputText & String(depth * 4, " ") & key & " = [" & cel.Value & "]" & vbCrLf
+        Exit Sub
+    Else
+        outputText = outputText & String(depth * 4, " ") & key & " = " & f & vbCrLf
+    End If
+
+    ' najpierw spróbuj Precedents (bardziej "oficjalne")
+    Dim preRng As Range
+    On Error Resume Next
+    Set preRng = cel.Precedents
+    On Error GoTo 0
+
+    If Not preRng Is Nothing Then
+        Dim area As Range, c As Range
+        For Each area In preRng.Areas
+            For Each c In area.Cells
+                ProcessCell c, depth + 1
+            Next c
+        Next area
+    Else
+        ' fallback: parsuj formułę i znajdź referencje tekstowo
+        Dim refs As Collection
+        Set refs = ParseFormulaForRefs(f, cel.Parent)
+        Dim i As Long
+        For i = 1 To refs.Count
+            ProcessCell refs(i), depth + 1
+        Next i
+    End If
+End Sub
+
+' === funkcja pomocnicza: parsuje formułę i zwraca kolekcję Range (pojedyncze komórki) ===
+Private Function ParseFormulaForRefs(formula As String, currentSheet As Worksheet) As Collection
+    Dim tmp As String: tmp = formula
+    Dim coll As New Collection
+    Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+    Dim re As Object, matches As Object, m As Object
+    Dim matchVal As String, sheetPart As String, addrPart As String
+    Dim ws As Worksheet, rng As Range, c As Range
+
+    ' 1) odwołania z zacytowaną nazwą arkusza 'Arkusz z spacjami'!A1
+    Set re = CreateObject("VBScript.RegExp")
+    re.Global = True
+    re.IgnoreCase = False
+    re.Pattern = "'[^']+'!\$?[A-Za-z]{1,3}\$?\d{1,7}(:\$?[A-Za-z]{1,3}\$?\d{1,7})?"
+    Set matches = re.Execute(tmp)
+    For Each m In matches
+        matchVal = m.Value
+        If InStr(matchVal, "!") > 0 Then
+            sheetPart = Left(matchVal, InStr(matchVal, "!") - 1)
+            addrPart = Mid(matchVal, InStr(matchVal, "!") + 1)
+            If Left(sheetPart, 1) = "'" And Right(sheetPart, 1) = "'" Then
+                sheetPart = Mid(sheetPart, 2, Len(sheetPart) - 2)
+                sheetPart = Replace(sheetPart, "''", "'")
+            End If
+        Else
+            sheetPart = currentSheet.Name
+            addrPart = matchVal
+        End If
+        On Error Resume Next
+        Set ws = ThisWorkbook.Worksheets(sheetPart)
+        On Error GoTo 0
+        If Not ws Is Nothing Then
+            On Error Resume Next
+            Set rng = ws.Range(addrPart)
+            On Error GoTo 0
+            If Not rng Is Nothing Then
+                For Each c In rng.Cells
+                    Dim k As String: k = ws.Name & "!" & c.Address(False, False)
+                    If Not seen.Exists(k) Then seen.Add k, True: coll.Add c
+                Next c
+            End If
+        End If
+        tmp = Replace(tmp, matchVal, Space(Len(matchVal)))
+    Next m
+
+    ' 2) odwołania typu Arkusz!A1 (bez cudzysłowów)
+    re.Pattern = "[A-Za-z0-9_]+!\$?[A-Za-z]{1,3}\$?\d{1,7}(:\$?[A-Za-z]{1,3}\$?\d{1,7})?"
+    Set matches = re.Execute(tmp)
+    For Each m In matches
+        matchVal = m.Value
+        sheetPart = Left(matchVal, InStr(matchVal, "!") - 1)
+        addrPart = Mid(matchVal, InStr(matchVal, "!") + 1)
+        On Error Resume Next
+        Set ws = ThisWorkbook.Worksheets(sheetPart)
+        On Error GoTo 0
+        If Not ws Is Nothing Then
+            On Error Resume Next
+            Set rng = ws.Range(addrPart)
+            On Error GoTo 0
+            If Not rng Is Nothing Then
+                For Each c In rng.Cells
+                    Dim k2 As String: k2 = ws.Name & "!" & c.Address(False, False)
+                    If Not seen.Exists(k2) Then seen.Add k2, True: coll.Add c
+                Next c
+            End If
+        End If
+        tmp = Replace(tmp, matchVal, Space(Len(matchVal)))
+    Next m
+
+    ' 3) odwołania bez nazwy arkusza: A1 lub $A$1 czy zakres A1:B2
+    re.Pattern = "\$?[A-Za-z]{1,3}\$?\d{1,7}(:\$?[A-Za-z]{1,3}\$?\d{1,7})?"
+    Set matches = re.Execute(tmp)
+    For Each m In matches
+        matchVal = m.Value
+        sheetPart = currentSheet.Name
+        addrPart = matchVal
+        Set ws = currentSheet
+        On Error Resume Next
+        Set rng = ws.Range(addrPart)
+        On Error GoTo 0
+        If Not rng Is Nothing Then
+            For Each c In rng.Cells
+                Dim k3 As String: k3 = ws.Name & "!" & c.Address(False, False)
+                If Not seen.Exists(k3) Then seen.Add k3, True: coll.Add c
+            Next c
+        End If
+        tmp = Replace(tmp, matchVal, Space(Len(matchVal)))
+    Next m
+
+    Set ParseFormulaForRefs = coll
+End Function
