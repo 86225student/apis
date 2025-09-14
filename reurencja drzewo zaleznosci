@@ -1,0 +1,59 @@
+Option Explicit
+
+Dim outputText As String
+Dim indentLevel As Long
+
+Sub AnalizujKomorke()
+    Dim startCell As Range
+    Dim filePath As String
+    Dim fnum As Integer
+    
+    ' 🔹 Ustaw punkt startowy analizy
+    Set startCell = ThisWorkbook.Sheets("wynik").Range("E7")
+    
+    ' 🔹 Reset zmiennych globalnych
+    outputText = ""
+    indentLevel = 0
+    
+    ' 🔹 Uruchom rekurencję
+    Call SprawdzFormule(startCell)
+    
+    ' 🔹 Zapisz wynik do pliku tekstowego w katalogu pliku Excela
+    filePath = ThisWorkbook.Path & "\analiza_drzewo.txt"
+    fnum = FreeFile
+    Open filePath For Output As #fnum
+    Print #fnum, outputText
+    Close #fnum
+    
+    MsgBox "Gotowe! Wynik zapisano w: " & filePath
+End Sub
+
+Private Sub SprawdzFormule(cel As Range)
+    Dim f As String
+    Dim dep As Range
+    
+    On Error Resume Next
+    f = cel.Formula
+    
+    ' 🔹 Dopisz nazwę komórki z wcięciem
+    outputText = outputText & String(indentLevel * 4, " ") & _
+                 cel.Worksheet.Name & "!" & cel.Address(False, False)
+    
+    If f = "" Or Left(f, 1) <> "=" Then
+        ' 🔹 Komórka bez formuły – pokaż jej wartość
+        outputText = outputText & " = [" & cel.Value & "]" & vbCrLf
+        Exit Sub
+    Else
+        outputText = outputText & " = " & f & vbCrLf
+    End If
+    
+    ' 🔹 Wejdź głębiej w precedensy (komórki źródłowe)
+    indentLevel = indentLevel + 1
+    On Error Resume Next
+    For Each dep In cel.Precedents
+        If Not dep Is Nothing Then
+            Call SprawdzFormule(dep)
+        End If
+    Next dep
+    indentLevel = indentLevel - 1
+End Sub
