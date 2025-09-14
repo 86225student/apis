@@ -1,0 +1,63 @@
+Option Explicit
+
+Dim outputLine As String
+Dim visited As Collection
+
+Sub AnalizujFormule()
+    Dim startCell As Range
+    Dim filePath As String
+    
+    ' punkt startowy
+    Set startCell = ThisWorkbook.Sheets("wynik").Range("E7")
+    
+    ' inicjalizacja
+    outputLine = ""
+    Set visited = New Collection
+    
+    ' rekurencja
+    Call SprawdzFormule(startCell)
+    
+    ' ścieżka do pliku (zmień wedle potrzeb)
+    filePath = ThisWorkbook.Path & "\analiza.txt"
+    
+    ' zapis do pliku
+    Dim fnum As Integer
+    fnum = FreeFile
+    Open filePath For Output As #fnum
+    Print #fnum, outputLine
+    Close #fnum
+    
+    MsgBox "Zapisano ścieżkę do: " & filePath
+End Sub
+
+Private Sub SprawdzFormule(cel As Range)
+    Dim f As String
+    Dim dep As Range
+    Dim depCell As Range
+    Dim ws As Worksheet
+    
+    On Error Resume Next
+    
+    f = cel.Formula
+    
+    ' zapamiętaj aktualną komórkę
+    outputLine = outputLine & cel.Worksheet.Name & "!" & cel.Address(False, False) & " -> "
+    
+    If f = "" Or Left(f, 1) <> "=" Then
+        ' nie ma formuły – koniec rekurencji
+        outputLine = outputLine & "[" & cel.Value & "] "
+        Exit Sub
+    End If
+    
+    ' sprawdzamy zależności
+    For Each dep In cel.Dependents ' to nie działa dla precedensów, trzeba inaczej
+    Next
+    
+    ' poprawny sposób: użyj Precedents
+    On Error Resume Next
+    For Each depCell In cel.Precedents
+        If Not depCell Is Nothing Then
+            Call SprawdzFormule(depCell)
+        End If
+    Next depCell
+End Sub
