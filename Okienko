@@ -1,0 +1,84 @@
+Option Explicit
+
+Private Sub UserForm_Initialize()
+    ' Wypełniamy ComboBox kolumnami
+    With Me.ComboBox1
+        .AddItem "typ_klienta"
+        .AddItem "nazwa_klienta"
+        .AddItem "nr_telefonu"
+        .AddItem "miejscowość"
+        .AddItem "ulica"
+        .AddItem "nrdomu"
+        .AddItem "kod_pocztowy"
+        .AddItem "doradca"
+        .AddItem "oddział"
+        .AddItem "województwo"
+        .AddItem "temat"
+        .AddItem "podtemat"
+        .AddItem "status"
+        .AddItem "opis"
+        .AddItem "data"
+    End With
+    
+    ' Ładujemy dane startowe
+    Call ZaladujRekordy("")
+End Sub
+
+Private Sub CommandButton1_Click()
+    Dim filtr As String
+    
+    ' Budujemy fragment SQL do filtrowania
+    If Me.ComboBox1.Value <> "" And Me.TextBox1.Value <> "" Then
+        filtr = " AND K." & Me.ComboBox1.Value & " LIKE '%" & Me.TextBox1.Value & "%' "
+    End If
+    
+    ' Ładujemy dane z filtrem
+    Call ZaladujRekordy(filtr)
+End Sub
+
+Private Sub ZaladujRekordy(filtr As String)
+    Dim conn As ADODB.Connection
+    Dim rs As ADODB.Recordset
+    Dim sql As String
+    Dim sciezka As String
+    
+    sciezka = "https://twojsharepoint.site/sciezka/do/bazy.accdb"
+    
+    ' Zapytanie: najnowszy rekord dla klienta (po nr_telefonu)
+    sql = "SELECT K.typ_klienta, K.nazwa_klienta, K.nr_telefonu, K.miejscowość, " & _
+          "K.ulica, K.nrdomu, K.kod_pocztowy, K.doradca, K.oddział, K.województwo, " & _
+          "K.temat, K.podtemat, K.status, K.opis, K.data " & _
+          "FROM Klienci AS K " & _
+          "INNER JOIN ( " & _
+          "   SELECT nr_telefonu, MAX(data) AS MaxData " & _
+          "   FROM Klienci " & _
+          "   WHERE status = 'Klient do kontaktu RASC' " & _
+          "   GROUP BY nr_telefonu " & _
+          ") AS Q " & _
+          "ON K.nr_telefonu = Q.nr_telefonu AND K.data = Q.MaxData " & _
+          "WHERE K.status = 'Klient do kontaktu RASC' " & filtr & _
+          "ORDER BY K.data DESC;"
+    
+    ' Połączenie
+    Set conn = New ADODB.Connection
+    conn.Open "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" & sciezka & ";"
+    
+    ' Rekordset
+    Set rs = New ADODB.Recordset
+    rs.Open sql, conn, adOpenStatic, adLockReadOnly
+    
+    ' Czyszczenie ListBoxa
+    Me.ListBox1.Clear
+    Me.ListBox1.ColumnCount = 15
+    
+    ' Ładowanie danych do tablicy (szybsze niż AddItem w pętli)
+    If Not rs.EOF Then
+        Dim dane As Variant
+        dane = rs.GetRows()
+        Me.ListBox1.Column = dane
+    End If
+    
+    ' Zamknięcie
+    rs.Close: Set rs = Nothing
+    conn.Close: Set conn = Nothing
+End Sub
