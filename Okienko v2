@@ -1,0 +1,101 @@
+Option Explicit
+
+Private sciezkaTymczasowa As String
+
+Private Sub UserForm_Initialize()
+    ' Pobranie pliku z SharePoint do TEMP
+    sciezkaTymczasowa = PobierzPlikZSharePoint()
+    
+    ' Załaduj dane startowe
+    Call ZaladujRekordy("", sciezkaTymczasowa)
+End Sub
+
+Private Sub CommandButton1_Click()
+    Dim filtr As String
+    
+    If Me.ComboBox1.Value <> "" And Me.TextBox1.Value <> "" Then
+        filtr = " AND K." & Me.ComboBox1.Value & " LIKE '%" & Me.TextBox1.Value & "%' "
+    End If
+    
+    Call ZaladujRekordy(filtr, sciezkaTymczasowa)
+End Sub
+
+Private Sub UserForm_Terminate()
+    ' Usuń plik tymczasowy po zamknięciu formularza
+    On Error Resume Next
+    Kill sciezkaTymczasowa
+End Sub
+
+'========================
+' Funkcje pomocnicze
+'========================
+
+Private Function PobierzPlikZSharePoint() As String
+    Dim http As Object
+    Dim tempPath As String, lokalnaSciezka As String
+    Dim adoStream As Object
+    
+    ' Ścieżka tymczasowa
+    tempPath = Environ("TEMP") & "\baza_temp.accdb"
+    
+    ' Pobranie pliku
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", "https://twojsharepoint.site/sciezka/do/bazy.accdb", False
+    http.Send
+    
+    If http.Status <> 200 Then
+        MsgBox "Błąd pobierania pliku z SharePoint. Kod: " & http.Status, vbCritical
+        End
+    End If
+    
+    ' Zapis pliku do TEMP
+    Set adoStream = CreateObject("ADODB.Stream")
+    adoStream.Type = 1 'binary
+    adoStream.Open
+    adoStream.Write http.responseBody
+    adoStream.SaveToFile tempPath, 2 'overwrite
+    adoStream.Close
+    
+    PobierzPlikZSharePoint = tempPath
+End Function
+
+Private Sub ZaladujRekordy(filtr As String, sciezka As String)
+    Dim conn As ADODB.Connection
+    Dim rs As ADODB.Recordset
+    Dim sql As String
+    
+    ' Zapytanie – najnowszy rekord dla klienta
+    sql = "SELECT K.typ_klienta, K.nazwa_klienta, K.nr_telefonu, K.miejscowość, " & _
+          "K.ulica, K.nrdomu, K.kod_pocztowy, K.doradca, K.oddział, K.województwo, " & _
+          "K.temat, K.podtemat, K.status, K.opis, K.data " & _
+          "FROM Klienci AS K " & _
+          "INNER JOIN ( " & _
+          "   SELECT nr_telefonu, MAX(data) AS MaxData " & _
+          "   FROM Klienci " & _
+          "   WHERE status = 'Klient do kontaktu RASC' " & _
+          "   GROUP BY nr_telefonu " & _
+          ") AS Q " & _
+          "ON K.nr_telefonu = Q.nr_telefonu AND K.data = Q.MaxData " & _
+          "WHERE K.status = 'Klient do kontaktu RASC' " & filtr & _
+          "ORDER BY K.data DESC;"
+    
+    ' Połączenie
+    Set conn = New ADODB.Connection
+    conn.Open "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" & sciezka & ";"
+    
+    ' Rekordset
+    Set rs = New ADODB.Recordset
+    rs.Open sql, conn, adOpenStatic, adLockReadOnly
+    
+    ' Wypełnianie ListBoxa
+    Me.ListBox1.Clear
+    Me.ListBox1.ColumnCount = 15
+    
+    If Not rs.EOF Then
+        Me.ListBox1.Column = rs.GetRows()
+    End If
+    
+    ' Zamknięcie
+    rs.Close: Set rs = Nothing
+    conn.Close: Set conn = Nothing
+End Sub
