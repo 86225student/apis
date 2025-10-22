@@ -1,0 +1,92 @@
+Option Explicit
+
+' --- Funkcja pomocnicza: pobiera dane z URL ---
+Function GetHTTPResponse(url As String) As String
+    Dim http As Object
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", url, False
+    http.setRequestHeader "User-Agent", "Excel VBA Nominatim Client"
+    http.Send
+    GetHTTPResponse = http.responseText
+End Function
+
+' --- Funkcja do wyciągnięcia współrzędnych z JSON ---
+Function GetCoordinates(city As String) As Variant
+    Dim json As String, url As String
+    Dim lat As Double, lon As Double
+    Dim iLat As Long, iLon As Long, tmp As String
+    
+    ' Adres API Nominatim (tylko Polska)
+    url = "https://nominatim.openstreetmap.org/search?city=" & Replace(city, " ", "+") & "&country=Poland&format=json"
+    
+    json = GetHTTPResponse(url)
+    
+    If InStr(json, """lat"":") = 0 Then
+        GetCoordinates = Array(0, 0)
+        Exit Function
+    End If
+    
+    ' Proste parsowanie bez biblioteki JSON
+    iLat = InStr(json, """lat"":") + 7
+    tmp = Mid(json, iLat, InStr(iLat, json, ",") - iLat)
+    lat = CDbl(Replace(Replace(tmp, """", ""), ".", ","))
+    
+    iLon = InStr(json, """lon"":") + 7
+    tmp = Mid(json, iLon, InStr(iLon, json, ",") - iLon)
+    lon = CDbl(Replace(Replace(tmp, """", ""), ".", ","))
+    
+    GetCoordinates = Array(lat, lon)
+End Function
+
+' --- Funkcja licząca dystans (w kilometrach) między 2 punktami ---
+Function Haversine(lat1 As Double, lon1 As Double, lat2 As Double, lon2 As Double) As Double
+    Const R = 6371 ' promień Ziemi w km
+    Dim dLat As Double, dLon As Double, a As Double, c As Double
+    
+    dLat = WorksheetFunction.Radians(lat2 - lat1)
+    dLon = WorksheetFunction.Radians(lon2 - lon1)
+    a = Sin(dLat / 2) ^ 2 + Cos(WorksheetFunction.Radians(lat1)) * Cos(WorksheetFunction.Radians(lat2)) * Sin(dLon / 2) ^ 2
+    c = 2 * WorksheetFunction.Atan2(Sqr(a), Sqr(1 - a))
+    Haversine = R * c
+End Function
+
+' --- Główne makro ---
+Sub ZnajdzNajblizszyOddzial()
+    Dim miasto As String
+    Dim wsp As Variant
+    Dim lat As Double, lon As Double
+    Dim ws As Worksheet
+    Dim i As Long, lastRow As Long
+    Dim minDist As Double, dist As Double
+    Dim najlepszyOddzial As String
+    
+    miasto = Sheets("Dane").Range("A2").Value
+    If miasto = "" Then
+        MsgBox "Podaj nazwę miejscowości w komórce A2.", vbExclamation
+        Exit Sub
+    End If
+    
+    wsp = GetCoordinates(miasto)
+    If wsp(0) = 0 And wsp(1) = 0 Then
+        MsgBox "Nie udało się znaleźć współrzędnych dla miejscowości: " & miasto, vbCritical
+        Exit Sub
+    End If
+    
+    lat = wsp(0)
+    lon = wsp(1)
+    
+    Set ws = Sheets("Słownik")
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    minDist = 1E+99
+    For i = 2 To lastRow
+        dist = Haversine(lat, lon, ws.Cells(i, 2).Value, ws.Cells(i, 3).Value)
+        If dist < minDist Then
+            minDist = dist
+            najlepszyOddzial = ws.Cells(i, 1).Value
+        End If
+    Next i
+    
+    MsgBox "Najbliższy oddział dla miejscowości " & miasto & " to: " & najlepszyOddzial & vbCrLf & _
+           "(odległość: " & Round(minDist, 2) & " km)", vbInformation
+End Sub
